@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestural — Hand & Face Tracking CGI</title>
+  <meta name="description"
+    content="Real-time hand and face tracking with cinematic CGI effects. MediaPipe + Canvas 2D.">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.min.js"
+    crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box
+    }
+
+    body {
+      background: #050508;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+      color: #aaa;
+      width: 100vw;
+      height: 100vh
+    }
+
+    canvas {
+      display: block
+    }
+
+    #webcam {
+      display: none
+    }
+
+    #ui {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10
+    }
+
+    .mode-panel {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: auto;
+      opacity: 0.3;
+      transition: opacity .3s ease
+    }
+
+    .mode-panel:hover {
+      opacity: 1
+    }
+
+    .mode-row {
+      display: flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    .row-label {
+      font-size: 9px;
+      color: #555;
+      letter-spacing: 2px;
+      width: 36px;
+      text-align: right;
+      flex-shrink: 0
+    }
+
+    .mode-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #666;
+      padding: 4px 10px;
+      border-radius: 14px;
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      cursor: pointer;
+      transition: all .2s ease;
+      letter-spacing: 1px
+    }
+
+    .mode-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.1)
+    }
+
+    .mode-btn.active-hand {
+      color: #00f5ff;
+      border-color: #00f5ff;
+      background: rgba(0, 245, 255, 0.08)
+    }
+
+    .mode-btn.active-face {
+      color: #bf6fff;
+      border-color: #bf6fff;
+      background: rgba(180, 100, 255, 0.08)
+    }
+
+    .mode-btn.off-btn {
+      color: #555;
+      font-size: 9px;
+      padding: 4px 8px
+    }
+
+    .mode-btn.off-btn.active-hand,
+    .mode-btn.off-btn.active-face {
+      color: #ff4466;
+      border-color: #ff4466;
+      background: rgba(255, 68, 102, 0.08)
+    }
+
+    .status-panel {
+      position: absolute;
+      top: 16px;
+      left: 14px;
+      font-size: 9px;
+      letter-spacing: 1px;
+      opacity: 0.5;
+      line-height: 1.8
+    }
+
+    .status-line {
+      display: flex;
+      align-items: center;
+      gap: 6px
+    }
+
+    .s-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #444;
+      display: inline-block;
+      transition: background .3s
+    }
+
+    .s-dot.on {
+      background: #00ff88;
+      box-shadow: 0 0 6px #00ff88
+    }
+
+    .s-dot.on-face {
+      background: #bf6fff;
+      box-shadow: 0 0 6px #bf6fff
+    }
+
+    .fps-counter {
+      position: absolute;
+      bottom: 10px;
+      right: 14px;
+      font-size: 10px;
+      color: #333;
+      opacity: 0.5
+    }
+
+    .onboarding {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5, 5, 8, 0.85);
+      pointer-events: auto;
+      transition: opacity .6s ease
+    }
+
+    .onboarding.hidden {
+      opacity: 0;
+      pointer-events: none
+    }
+
+    .onboarding h1 {
+      font-size: 18px;
+      color: #00f5ff;
+      font-weight: 400;
+      letter-spacing: 3px;
+      margin-bottom: 16px;
+      text-transform: uppercase
+    }
+
+    .onboarding p {
+      font-size: 13px;
+      color: #666;
+      max-width: 400px;
+      text-align: center;
+      line-height: 1.8
+    }
+
+    .loading-ring {
+      width: 40px;
+      height: 40px;
+      border: 2px solid rgba(0, 245, 255, 0.15);
+      border-top-color: #00f5ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 24px
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    .error-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5, 5, 8, 0.95);
+      pointer-events: auto
+    }
+
+    .error-overlay.hidden {
+      display: none
+    }
+
+    .error-overlay h1 {
+      font-size: 18px;
+      color: #ff4466;
+      font-weight: 400;
+      letter-spacing: 2px;
+      margin-bottom: 12px
+    }
+
+    .error-overlay p {
+      font-size: 13px;
+      color: #666;
+      max-width: 420px;
+      text-align: center;
+      line-height: 1.8
+    }
+  </style>
+</head>
+
+<body>
+  <video id="webcam" autoplay playsinline></video>
+  <div id="ui">
+    <div class="mode-panel">
+      <div class="mode-row" id="hand-row">
+        <span class="row-label">HAND</span>
+        <button class="mode-btn active-hand" data-hand="1">PARTICLES</button>
+        <button class="mode-btn" data-hand="2">WAVES</button>
+        <button class="mode-btn" data-hand="3">INK</button>
+        <button class="mode-btn off-btn" data-hand="0">OFF</button>
+      </div>
+      <div class="mode-row" id="face-row">
+        <span class="row-label">FACE</span>
+        <button class="mode-btn" data-face="4">MESH</button>
+        <button class="mode-btn" data-face="5">AURA</button>
+        <button class="mode-btn" data-face="6">HALO</button>
+        <button class="mode-btn" data-face="7">GLITCH</button>
+        <button class="mode-btn" data-face="8">PORTAL</button>
+        <button class="mode-btn off-btn active-face" data-face="0">OFF</button>
+      </div>
+    </div>
+    <div class="status-panel">
+      <div class="status-line"><span class="s-dot" id="hand-dot"></span> <span id="hand-status">HAND: --</span></div>
+      <div class="status-line"><span class="s-dot" id="face-dot"></span> <span id="face-status">FACE: --</span></div>
+    </div>
+    <div class="fps-counter" id="fps-counter">-- fps</div>
+    <div class="onboarding" id="onboarding">
+      <div class="loading-ring"></div>
+      <h1>Gestural</h1>
+      <p>Allow camera access → Move your hand or show your face to begin</p>
+    </div>
+    <div class="error-overlay hidden" id="error-overlay">
+      <h1>Camera Access Denied</h1>
+      <p>This app needs camera access. Please allow camera permissions and reload.</p>
+    </div>
+  </div>
+  <script>
+    // ═══════════════════════════════════════════════════════
+    //  GESTURAL — HAND + FACE TRACKING CGI
+    // ═══════════════════════════════════════════════════════
+    let W, H;
+    let activeHandMode = 1, activeFaceMode = 0;
+    let onboardingDismissed = false;
+
+    // Hand state
+    const state = {
+      indexPos: { x: 0, y: 0 }, prevIndexPos: { x: 0, y: 0 }, velocity: { x: 0, y: 0 }, speed: 0,
+      isPinching: false, wasPinching: false, isOpenPalm: false, wasOpenPalm: false,
+      handVisible: false, frameCount: 0,
+      thumbPos: { x: 0, y: 0 }, middlePos: { x: 0, y: 0 }, ringPos: { x: 0, y: 0 }, pinkyPos: { x: 0, y: 0 }
+    };
+
+    // Face state
+    const faceState = {
+      detected: false, landmarks: null, fadeAlpha: 0,
+      center: { x: 0, y: 0 }, prevCenter: { x: 0, y: 0 }, foreheadCenter: { x: 0, y: 0 }, chinCenter: { x: 0, y: 0 },
+      leftEye: { x: 0, y: 0 }, rightEye: { x: 0, y: 0 }, leftCheek: { x: 0, y: 0 }, rightCheek: { x: 0, y: 0 },
+      mouthCenter: { x: 0, y: 0 }, noseTip: { x: 0, y: 0 },
+      faceWidth: 0, faceHeight: 0, headTiltAngle: 0, headVelocity: 0,
+      mouthOpenRatio: 0, eyebrowRaiseLeft: 0, eyebrowRaiseRight: 0,
+      blinkLeft: false, blinkRight: false,
+      prevBlinkLeft: false, prevBlinkRight: false,
+      prevMouthOpen: false, isMouthOpen: false,
+      prevBrowRaise: false, isBrowRaise: false,
+      jawOutline: []
+    };
+
+    const SMOOTH_WINDOW = 10;
+    let landmarkHistory = [];
+    const FACE_SMOOTH = 5;
+    let faceLmHistory = [];
+    let fpsTimes = [];
+    const CV_INTERVAL = 1000 / 20;
+    let lastCVTime = 0, cvBusy = false;
+
+    // Hand graphics data
+    const MAX_PARTICLES = 500; let particles = [];
+    const MAX_RINGS = 30; let rings = [];
+    const INK_COLS = 40, INK_ROWS = 30;
+    let inkGrid = [], inkGridNext = [];
+    function initInkGrid() { inkGrid = []; inkGridNext = []; for (let r = 0; r < INK_ROWS; r++) { inkGrid[r] = new Float32Array(INK_COLS); inkGridNext[r] = new Float32Array(INK_COLS) } }
+
+    // Face graphics data
+    let auraParticles = [], auraArcs = [];
+    const MAX_HALO = 120; let haloParticles = [];
+    let haloInited = false;
+    let glitchTimer = 0, glitchDuration = 0, glitchBars = [];
+    let glitchTextFlicker = 0, glitchPercents = ['98.2', '97.8'];
+    let portalStars = [], portalTendrils = [], portalCosmicParts = [];
+    let portalInited = false;
+
+    // DOM refs
+    const videoEl = document.getElementById('webcam');
+    const fpsCounter = document.getElementById('fps-counter');
+    const onboardingEl = document.getElementById('onboarding');
+    const errorOverlay = document.getElementById('error-overlay');
+    const handDot = document.getElementById('hand-dot');
+    const faceDot = document.getElementById('face-dot');
+    const handStatusEl = document.getElementById('hand-status');
+    const faceStatusEl = document.getElementById('face-status');
+
+    // JAW outline indices
+    const JAW_INDICES = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10];
+
+    // ═══════ CAMERA ═══════
+    async function initCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } });
+        videoEl.srcObject = stream; await videoEl.play(); initMediaPipe();
+      } catch (e) { console.error('Camera:', e); onboardingEl.classList.add('hidden'); errorOverlay.classList.remove('hidden') }
+    }
+
+    // ═══════ MEDIAPIPE ═══════
+    let mpHands, mpFace, pipelineReady = false;
+    function initMediaPipe() {
+      mpHands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${f}` });
+      mpHands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.5 });
+      mpHands.onResults(onHandResults);
+
+      mpFace = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
+      mpFace.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.6, minTrackingConfidence: 0.5 });
+      mpFace.onResults(onFaceResults);
+      pipelineReady = true;
+    }
+
+    async function sendFrameToCV(ts) {
+      if (!pipelineReady || cvBusy) return;
+      if (ts - lastCVTime < CV_INTERVAL) return;
+      lastCVTime = ts; cvBusy = true;
+      try { await mpHands.send({ image: videoEl }); await mpFace.send({ image: videoEl }) } catch (e) { }
+      cvBusy = false;
+    }
+
+    // ═══════ HAND RESULTS ═══════
+    function onHandResults(results) {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const lm = results.multiHandLandmarks[0];
+        landmarkHistory.push(lm.map(l => ({ x: l.x, y: l.y, z: l.z })));
+        if (landmarkHistory.length > SMOOTH_WINDOW) landmarkHistory.shift();
+        const sm = smoothLandmarks(landmarkHistory, 21);
+        const tc = p => ({ x: (1 - p.x) * W, y: p.y * H });
+        state.prevIndexPos.x = state.indexPos.x; state.prevIndexPos.y = state.indexPos.y;
+        const idx = tc(sm[8]); state.indexPos.x = idx.x; state.indexPos.y = idx.y;
+        const th = tc(sm[4]); state.thumbPos.x = th.x; state.thumbPos.y = th.y;
+        const md = tc(sm[12]); state.middlePos.x = md.x; state.middlePos.y = md.y;
+        const rn = tc(sm[16]); state.ringPos.x = rn.x; state.ringPos.y = rn.y;
+        const pk = tc(sm[20]); state.pinkyPos.x = pk.x; state.pinkyPos.y = pk.y;
+        state.velocity.x = state.indexPos.x - state.prevIndexPos.x;
+        state.velocity.y = state.indexPos.y - state.prevIndexPos.y;
+        state.speed = Math.sqrt(state.velocity.x ** 2 + state.velocity.y ** 2);
+        state.wasPinching = state.isPinching;
+        state.isPinching = Math.sqrt((th.x - idx.x) ** 2 + (th.y - idx.y) ** 2) < 40;
+        state.wasOpenPalm = state.isOpenPalm;
+        const tips = [th, idx, md, rn, pk]; let ts2 = 0, pr = 0;
+        for (let i = 0; i < 5; i++)for (let j = i + 1; j < 5; j++) { ts2 += Math.sqrt((tips[i].x - tips[j].x) ** 2 + (tips[i].y - tips[j].y) ** 2); pr++ }
+        state.isOpenPalm = (ts2 / pr) > 120;
+        state.handVisible = true;
+        if (!onboardingDismissed) { onboardingDismissed = true; onboardingEl.classList.add('hidden') }
+      } else { state.handVisible = false; state.isPinching = false; state.isOpenPalm = false }
+    }
+
+    // ═══════ FACE RESULTS ═══════
+    function onFaceResults(results) {
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const lm = results.multiFaceLandmarks[0];
+        faceLmHistory.push(lm.map(l => ({ x: l.x, y: l.y, z: l.z })));
+        if (faceLmHistory.length > FACE_SMOOTH) faceLmHistory.shift();
+        const sm = smoothLandmarks(faceLmHistory, 468);
+        const tc = p => ({ x: (1 - p.x) * W, y: p.y * H });
+        faceState.prevCenter.x = faceState.center.x; faceState.prevCenter.y = faceState.center.y;
+        faceState.center = tc(sm[168]); faceState.noseTip = tc(sm[1]);
+        faceState.foreheadCenter = tc(sm[10]); faceState.chinCenter = tc(sm[152]);
+        faceState.leftEye = tc(sm[33]); faceState.rightEye = tc(sm[263]);
+        faceState.leftCheek = tc(sm[234]); faceState.rightCheek = tc(sm[454]);
+        const ul = tc(sm[13]), ll = tc(sm[14]);
+        faceState.mouthCenter = { x: (ul.x + ll.x) / 2, y: (ul.y + ll.y) / 2 };
+        faceState.faceWidth = Math.sqrt((faceState.leftEye.x - faceState.rightEye.x) ** 2 + (faceState.leftEye.y - faceState.rightEye.y) ** 2);
+        faceState.faceHeight = Math.sqrt((faceState.foreheadCenter.x - faceState.chinCenter.x) ** 2 + (faceState.foreheadCenter.y - faceState.chinCenter.y) ** 2);
+        faceState.headTiltAngle = Math.atan2(faceState.rightEye.y - faceState.leftEye.y, faceState.rightEye.x - faceState.leftEye.x);
+        const lipDist = Math.abs(ll.y - ul.y);
+        faceState.mouthOpenRatio = faceState.faceHeight > 0 ? lipDist / faceState.faceHeight : 0;
+        faceState.prevMouthOpen = faceState.isMouthOpen;
+        faceState.isMouthOpen = faceState.mouthOpenRatio > 0.06;
+        // Blink
+        const eyeTop = sm[159].y, eyeBot = sm[145].y, eyeL = sm[33].x, eyeR = sm[133].x;
+        const earL = Math.abs(eyeTop - eyeBot) / (Math.abs(eyeL - eyeR) || 0.001);
+        faceState.prevBlinkLeft = faceState.blinkLeft; faceState.blinkLeft = earL < 0.15;
+        const eyeTop2 = sm[386].y, eyeBot2 = sm[374].y, eyeL2 = sm[263].x, eyeR2 = sm[362].x;
+        const earR = Math.abs(eyeTop2 - eyeBot2) / (Math.abs(eyeL2 - eyeR2) || 0.001);
+        faceState.prevBlinkRight = faceState.blinkRight; faceState.blinkRight = earR < 0.15;
+        // Brow raise
+        const lbo = tc(sm[55]), leo = tc(sm[33]);
+        faceState.eyebrowRaiseLeft = faceState.faceHeight > 0 ? (leo.y - lbo.y) / faceState.faceHeight : 0;
+        const rbo = tc(sm[285]), reo = tc(sm[263]);
+        faceState.eyebrowRaiseRight = faceState.faceHeight > 0 ? (reo.y - rbo.y) / faceState.faceHeight : 0;
+        faceState.prevBrowRaise = faceState.isBrowRaise;
+        faceState.isBrowRaise = faceState.eyebrowRaiseLeft > 0.12 || faceState.eyebrowRaiseRight > 0.12;
+        faceState.headVelocity = Math.sqrt((faceState.center.x - faceState.prevCenter.x) ** 2 + (faceState.center.y - faceState.prevCenter.y) ** 2);
+        faceState.landmarks = sm;
+        faceState.jawOutline = JAW_INDICES.map(i => tc(sm[i]));
+        faceState.detected = true; faceState.fadeAlpha = 1;
+        if (!onboardingDismissed) { onboardingDismissed = true; onboardingEl.classList.add('hidden') }
+      } else { faceState.detected = false }
+    }
+
+    function smoothLandmarks(history, count) {
+      const n = history.length; if (n === 0) return [];
+      const r = [];
+      for (let i = 0; i < count; i++) { let sx = 0, sy = 0, sz = 0; for (let f = 0; f < n; f++) { sx += history[f][i].x; sy += history[f][i].y; sz += history[f][i].z } r.push({ x: sx / n, y: sy / n, z: sz / n }) }
+      return r;
+    }
+
+    // ═══════ p5 SETUP & DRAW ═══════
+    function setup() { W = windowWidth; H = windowHeight; createCanvas(W, H); colorMode(HSB, 360, 100, 100, 100); initInkGrid(); initCamera() }
+    function windowResized() { W = windowWidth; H = windowHeight; resizeCanvas(W, H); initInkGrid() }
+
+    function draw() {
+      state.frameCount++;
+      sendFrameToCV(performance.now());
+      // Fade alpha for face
+      if (!faceState.detected && faceState.fadeAlpha > 0) faceState.fadeAlpha = Math.max(0, faceState.fadeAlpha - 1 / 20);
+      // Status
+      handDot.classList.toggle('on', state.handVisible);
+      faceDot.classList.toggle('on-face', faceState.detected || faceState.fadeAlpha > 0);
+      let hst = 'HAND: ' + (state.handVisible ? 'TRACKING' : '--');
+      if (state.handVisible) { if (state.isPinching) hst += ' · PINCH'; else if (state.isOpenPalm) hst += ' · OPEN PALM' }
+      handStatusEl.textContent = hst;
+      let fst = 'FACE: ' + (faceState.detected ? 'DETECTED' : '--');
+      if (faceState.detected) { if (faceState.isMouthOpen) fst += ' · MOUTH OPEN'; if (faceState.isBrowRaise) fst += ' · BROW UP' }
+      faceStatusEl.textContent = fst;
+      // FPS
+      const now = performance.now(); fpsTimes.push(now);
+      while (fpsTimes.length > 0 && fpsTimes[0] < now - 1000) fpsTimes.shift();
+      if (state.frameCount % 15 === 0) fpsCounter.textContent = fpsTimes.length + ' fps';
+      // Render
+      background(3, 10, 3);
+      if (activeHandMode === 1) updateParticles();
+      else if (activeHandMode === 2) updateWaves();
+      else if (activeHandMode === 3) updateInk();
+      if (activeFaceMode >= 4 && faceState.fadeAlpha > 0) {
+        if (activeFaceMode === 4) drawFaceMesh();
+        else if (activeFaceMode === 5) drawAura();
+        else if (activeFaceMode === 6) drawHalo();
+        else if (activeFaceMode === 7) drawGlitch();
+        else if (activeFaceMode === 8) drawPortal();
+      }
+    }
+
+    // ═══════ HAND MODE 1: PARTICLES ═══════
+    function updateParticles() {
+      if (state.handVisible && state.speed > 2) { const c = Math.min(5, Math.floor(state.speed / 3) + 2); for (let i = 0; i < c; i++)spawnP(state.indexPos.x, state.indexPos.y, state.velocity.x * .3 + random(-1.5, 1.5), state.velocity.y * .3 + random(-1.5, 1.5), random(3, 7)) }
+      if (state.handVisible && state.isPinching && !state.wasPinching) for (let i = 0; i < 40; i++) { const a = random(TWO_PI), s = random(2, 8); spawnP(state.indexPos.x, state.indexPos.y, cos(a) * s, sin(a) * s, random(4, 10)) }
+      noStroke(); for (let i = particles.length - 1; i >= 0; i--) { const p = particles[i]; p.x += p.vx; p.y += p.vy; p.vx *= .97; p.vy *= .97; p.life--; const t = p.life / p.maxLife; fill(map(p.sp, 0, 30, 180, 300), 80, 95, t * 80); ellipse(p.x, p.y, p.size * t, p.size * t); if (p.life <= 0) particles.splice(i, 1) }
+    }
+    function spawnP(x, y, vx, vy, sz) { if (particles.length >= MAX_PARTICLES) particles.shift(); particles.push({ x, y, vx, vy, life: 60, maxLife: 60, size: sz, sp: state.speed }) }
+
+    // ═══════ HAND MODE 2: WAVES ═══════
+    function updateWaves() {
+      if (state.handVisible && state.speed > 1 && state.frameCount % 3 === 0) spawnR(state.indexPos.x, state.indexPos.y);
+      if (state.handVisible && state.isOpenPalm && !state.wasOpenPalm) [state.thumbPos, state.indexPos, state.middlePos, state.ringPos, state.pinkyPos].forEach(t => spawnR(t.x, t.y));
+      noFill(); for (let i = rings.length - 1; i >= 0; i--) { const r = rings[i]; r.radius += 3; r.life--; const t = r.life / r.maxLife; for (let l = 0; l < 3; l++) { stroke(190, 10, 100, t * 80 * (1 - l * .3)); strokeWeight((3 - l) * 1.5); ellipse(r.x, r.y, r.radius * 2, r.radius * 2) } if (r.life <= 0) rings.splice(i, 1) }
+    }
+    function spawnR(x, y) { if (rings.length >= MAX_RINGS) rings.shift(); rings.push({ x, y, radius: 5, life: 60, maxLife: 60 }) }
+
+    // ═══════ HAND MODE 3: INK ═══════
+    function updateInk() {
+      const cw = W / INK_COLS, ch = H / INK_ROWS;
+      if (state.handVisible && state.speed > 1) { const c = Math.floor(state.indexPos.x / cw), r = Math.floor(state.indexPos.y / ch); depInk(c, r, 1, 1) }
+      if (state.handVisible && state.isPinching && !state.wasPinching) { const c = Math.floor(state.indexPos.x / cw), r = Math.floor(state.indexPos.y / ch); depInk(c, r, 1, 2) }
+      for (let r = 0; r < INK_ROWS; r++)for (let c = 0; c < INK_COLS; c++) { let s = inkGrid[r][c] * 4, n = 4; if (r > 0) { s += inkGrid[r - 1][c]; n++ } if (r < INK_ROWS - 1) { s += inkGrid[r + 1][c]; n++ } if (c > 0) { s += inkGrid[r][c - 1]; n++ } if (c < INK_COLS - 1) { s += inkGrid[r][c + 1]; n++ } inkGridNext[r][c] = (s / n) * .97 }
+      let tmp = inkGrid; inkGrid = inkGridNext; inkGridNext = tmp;
+      noStroke(); for (let r = 0; r < INK_ROWS; r++)for (let c = 0; c < INK_COLS; c++) { const v = inkGrid[r][c]; if (v < .005) continue; fill(map(v, 0, 1, 220, 45), map(v, 0, 1, 60, 90), map(v, 0, 1, 30, 100), v * 90); rect(c * cw, r * ch, cw + 1, ch + 1) }
+    }
+    function depInk(col, row, amt, rad) { for (let dr = -rad; dr <= rad; dr++)for (let dc = -rad; dc <= rad; dc++) { const r = row + dr, c = col + dc; if (r >= 0 && r < INK_ROWS && c >= 0 && c < INK_COLS) { const f = Math.max(0, 1 - Math.sqrt(dr * dr + dc * dc) / (rad + 1)); inkGrid[r][c] = Math.min(1, inkGrid[r][c] + amt * f) } } }
+
+    // ═══════ FACE EFFECT 4: MESH OVERLAY ═══════
+    function drawFaceMesh() {
+      if (!faceState.landmarks) return;
+      const a = faceState.fadeAlpha; const ctx = drawingContext;
+      const lm = faceState.landmarks; const tc = p => ({ x: (1 - p.x) * W, y: p.y * H });
+      // Tesselation triangles — draw as wireframe
+      const meshColor = faceState.isMouthOpen ? 'rgba(255,0,170,' : 'rgba(0,245,255,';
+      ctx.strokeStyle = meshColor + (0.25 * a) + ')'; ctx.lineWidth = 0.5;
+      // Draw connections between adjacent landmarks (simplified mesh grid)
+      const meshPairs = [[10, 338], [338, 297], [297, 332], [332, 284], [284, 251], [251, 389], [389, 356], [356, 454], [454, 323], [323, 361], [361, 288], [288, 397], [397, 365], [365, 379], [379, 378], [378, 400], [400, 377], [377, 152], [152, 148], [148, 176], [176, 149], [149, 150], [150, 136], [136, 172], [172, 58], [58, 132], [132, 93], [93, 234], [234, 127], [127, 162], [162, 21], [21, 54], [54, 103], [103, 67], [67, 109], [109, 10], [33, 133], [33, 246], [246, 161], [161, 160], [160, 159], [159, 158], [158, 157], [157, 173], [173, 133], [263, 362], [263, 466], [466, 388], [388, 387], [387, 386], [386, 385], [385, 384], [384, 398], [398, 362], [13, 14], [78, 308], [78, 191], [308, 415], [0, 17], [61, 291], [39, 269], [37, 267], [185, 405], [40, 270]];
+      for (const [i, j] of meshPairs) { const a2 = tc(lm[i]), b2 = tc(lm[j]); ctx.beginPath(); ctx.moveTo(a2.x, a2.y); ctx.lineTo(b2.x, b2.y); ctx.stroke() }
+      // Face contour
+      ctx.strokeStyle = meshColor + (0.6 * a) + ')'; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (let i = 0; i < faceState.jawOutline.length; i++) { const p = faceState.jawOutline[i]; i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y) }
+      ctx.closePath(); ctx.stroke();
+      // Scanline
+      const fw = faceState.faceWidth * 1.2, fh = faceState.faceHeight;
+      const ft = faceState.foreheadCenter.y - fh * 0.1;
+      const scanSpeed = faceState.isMouthOpen ? 6 : 2;
+      const scanY = ft + ((state.frameCount * scanSpeed) % (fh * 1.2));
+      ctx.strokeStyle = meshColor + (0.4 * a) + ')'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(faceState.center.x - fw / 2, scanY); ctx.lineTo(faceState.center.x + fw / 2, scanY); ctx.stroke();
+      // Extra scanline on brow raise
+      if (faceState.isBrowRaise) { const s2 = ft + ((state.frameCount * 3 + fh * 0.6) % (fh * 1.2)); ctx.beginPath(); ctx.moveTo(faceState.center.x - fw / 2, s2); ctx.lineTo(faceState.center.x + fw / 2, s2); ctx.stroke() }
+      // Crosshair at nose tip
+      if (Math.floor(state.frameCount / 30) % 2 === 0) {
+        const n = faceState.noseTip; ctx.strokeStyle = 'rgba(0,245,255,' + (0.7 * a) + ')'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(n.x - 8, n.y); ctx.lineTo(n.x + 8, n.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(n.x, n.y - 8); ctx.lineTo(n.x, n.y + 8); ctx.stroke()
+      }
+      // Corner brackets
+      const bx1 = faceState.center.x - fw / 2, by1 = ft, bx2 = faceState.center.x + fw / 2, by2 = ft + fh * 1.2;
+      ctx.strokeStyle = 'rgba(0,245,255,' + (0.5 * a) + ')'; ctx.lineWidth = 1;
+      const bsz = 20;
+      [[bx1, by1, bsz, 0, 0, bsz], [bx2, by1, -bsz, 0, 0, bsz], [bx1, by2, bsz, 0, 0, -bsz], [bx2, by2, -bsz, 0, 0, -bsz]].forEach(([x, y, dx1, dy1, dx2, dy2]) => { ctx.beginPath(); ctx.moveTo(x + dx1, y + dy1); ctx.lineTo(x, y); ctx.lineTo(x + dx2, y + dy2); ctx.stroke() });
+    }
+
+    // ═══════ FACE EFFECT 5: ENERGY FIELD (AURA) ═══════
+    function drawAura() {
+      const a = faceState.fadeAlpha; const ctx = drawingContext;
+      const cx = faceState.center.x, cy = faceState.center.y;
+      const fw = faceState.faceWidth, fh = faceState.faceHeight;
+      if (fw < 1) return;
+      const pad = fw * 0.15; const extra = faceState.headVelocity > 5 ? faceState.headVelocity * 2 : 0;
+      // Determine color
+      let colR = 0, colG = 245, colB = 255;
+      if (faceState.isMouthOpen) { colR = 255; colG = 215; colB = 0 }
+      if (faceState.isBrowRaise) { colR = 255; colG = 255; colB = 240 }
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(faceState.headTiltAngle);
+      const layers = [[1.5, 0.04], [1.3, 0.07], [1.15, 0.12]];
+      layers.forEach(([sc, op]) => {
+        const rx = (fw / 2 + pad + extra) * sc, ry = (fh / 2 + pad + extra) * sc * 0.7;
+        ctx.fillStyle = `rgba(${colR},${colG},${colB},${op * a})`;
+        ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.fill()
+      });
+      // Crisp edge
+      const erx = (fw / 2 + pad + extra) * 1.15, ery = (fh / 2 + pad + extra) * 1.15 * 0.7;
+      ctx.strokeStyle = `rgba(${colR},${colG},${colB},${0.4 * a})`; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(0, 0, erx, ery, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      // Perimeter particles
+      if (faceState.detected) { for (let i = 0; i < 5; i++) { const ang = random(TWO_PI); const px = cx + cos(ang) * (fw * 0.8 + extra); const py = cy + sin(ang) * (fh * 0.5 + extra); auraParticles.push({ x: px, y: py, vx: cos(ang) * random(0.5, 2), vy: sin(ang) * random(0.5, 2), life: 40, maxLife: 40, size: random(2, 5), hue: faceState.isMouthOpen ? 45 : 185 }) } }
+      noStroke(); for (let i = auraParticles.length - 1; i >= 0; i--) { const p = auraParticles[i]; p.x += p.vx; p.y += p.vy; p.life--; const t = p.life / p.maxLife; fill(p.hue, 70, 95, t * 60 * a); ellipse(p.x, p.y, p.size * t, p.size * t); if (p.life <= 0) auraParticles.splice(i, 1) }
+      if (auraParticles.length > 200) auraParticles.splice(0, auraParticles.length - 200);
+      // Electric arcs
+      if (faceState.detected && random() < 0.02) {
+        const a1 = random(TWO_PI), a2 = a1 + random(0.5, 2);
+        auraArcs.push({ pts: genArc(cx, cy, fw * 0.8 + extra, fh * 0.5 + extra, a1, a2), life: 3 })
+      }
+      for (let i = auraArcs.length - 1; i >= 0; i--) {
+        const arc = auraArcs[i]; arc.life--;
+        ctx.strokeStyle = `rgba(${colR},${colG},${colB},${0.7 * a})`; ctx.lineWidth = 1.5; ctx.beginPath();
+        arc.pts.forEach((p, j) => j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)); ctx.stroke();
+        if (arc.life <= 0) auraArcs.splice(i, 1)
+      }
+    }
+    function genArc(cx, cy, rx, ry, a1, a2) { const pts = []; const steps = 8; for (let i = 0; i <= steps; i++) { const t = a1 + (a2 - a1) * (i / steps); const jx = (Math.random() - 0.5) * 12, jy = (Math.random() - 0.5) * 12; pts.push({ x: cx + Math.cos(t) * rx + jx, y: cy + Math.sin(t) * ry + jy }) } return pts }
+
+    // ═══════ FACE EFFECT 6: PARTICLE HALO ═══════
+    function drawHalo() {
+      const a = faceState.fadeAlpha; const cx = faceState.center.x, cy = faceState.center.y;
+      const fw = faceState.faceWidth; if (fw < 1) return;
+      // Init orbital particles
+      if (!haloInited || haloParticles.length < MAX_HALO) {
+        haloParticles = []; for (let i = 0; i < MAX_HALO; i++) {
+          const layer = i % 3;
+          haloParticles.push({ angle: random(TWO_PI), orbitRadius: fw * (0.6 + random() * 0.4) * (1 + layer * 0.25), speed: random(0.02, 0.06) * (layer === 0 ? 1 : layer === 1 ? 0.8 : 0.6), size: random(1, 4), hue: random(160, 220), zOffset: random() * 0.3, layer })
+        }
+        haloInited = true
+      }
+      // Update orbits
+      const speedMult = 1 + faceState.headVelocity * 0.05;
+      const orbitSpeedMult = faceState.isMouthOpen ? 2 : 1;
+      const tiltA = faceState.headTiltAngle;
+      // Sort by layer for depth
+      const sorted = [...haloParticles].sort((a2, b) => a2.layer - b.layer);
+      noStroke();
+      for (const p of sorted) {
+        p.angle += p.speed * speedMult * orbitSpeedMult;
+        // Shift hue to gold if mouth open
+        if (faceState.isMouthOpen) p.hue += (45 - p.hue) * 0.05;
+        else p.hue += (random(160, 220) - p.hue) * 0.01;
+        const rawX = Math.cos(p.angle) * p.orbitRadius;
+        const rawY = Math.sin(p.angle) * p.orbitRadius * 0.5;
+        const rx = rawX * Math.cos(tiltA) - rawY * Math.sin(tiltA);
+        const ry = rawX * Math.sin(tiltA) + rawY * Math.cos(tiltA);
+        const px = cx + rx, py = cy + ry;
+        const alph = (0.3 + p.zOffset) * a * (p.layer === 2 ? 1 : p.layer === 1 ? 0.7 : 0.4) * 80;
+        fill(p.hue, 70, 95, alph); ellipse(px, py, p.size, p.size)
+      }
+      // Blink burst from eyes
+      if (faceState.blinkLeft && !faceState.prevBlinkLeft) { for (let i = 0; i < 30; i++) { const ang = random(TWO_PI); auraParticles.push({ x: faceState.leftEye.x, y: faceState.leftEye.y, vx: cos(ang) * random(1, 4), vy: sin(ang) * random(1, 4), life: 30, maxLife: 30, size: random(1, 3), hue: 190 }) } }
+      if (faceState.blinkRight && !faceState.prevBlinkRight) { for (let i = 0; i < 30; i++) { const ang = random(TWO_PI); auraParticles.push({ x: faceState.rightEye.x, y: faceState.rightEye.y, vx: cos(ang) * random(1, 4), vy: sin(ang) * random(1, 4), life: 30, maxLife: 30, size: random(1, 3), hue: 190 }) } }
+      // Brow raise crown burst
+      if (faceState.isBrowRaise && !faceState.prevBrowRaise) { for (let i = 0; i < 20; i++) { auraParticles.push({ x: faceState.foreheadCenter.x + random(-fw * 0.3, fw * 0.3), y: faceState.foreheadCenter.y, vx: random(-1, 1), vy: random(-4, -1), life: 40, maxLife: 40, size: random(2, 5), hue: 50 }) } }
+      // Draw burst particles (shared with aura array)
+      noStroke(); for (let i = auraParticles.length - 1; i >= 0; i--) { const p = auraParticles[i]; p.x += p.vx; p.y += p.vy; p.life--; const t = p.life / p.maxLife; fill(p.hue, 70, 95, t * 60 * a); ellipse(p.x, p.y, p.size * t, p.size * t); if (p.life <= 0) auraParticles.splice(i, 1) }
+      if (auraParticles.length > 300) auraParticles.splice(0, auraParticles.length - 300);
+    }
+
+    // ═══════ FACE EFFECT 7: GLITCH DISTORTION ═══════
+    function drawGlitch() {
+      if (!faceState.landmarks) return;
+      const a = faceState.fadeAlpha; const ctx = drawingContext; const jaw = faceState.jawOutline;
+      // Chromatic aberration — 3 offset contours
+      const offsets = [[3, 0, 'rgba(255,0,0,'], [0, 0, 'rgba(0,255,0,'], [-3, 0, 'rgba(0,100,255,']];
+      const opacities = [0.4, 0.3, 0.4];
+      offsets.forEach(([ox, oy, col], idx) => {
+        ctx.strokeStyle = col + (opacities[idx] * a) + ')'; ctx.lineWidth = 1.5; ctx.beginPath();
+        jaw.forEach((p, i) => i === 0 ? ctx.moveTo(p.x + ox, p.y + oy) : ctx.lineTo(p.x + ox, p.y + oy)); ctx.closePath(); ctx.stroke()
+      });
+      // Glitch bars
+      const glitchFreq = faceState.isMouthOpen ? 5 : 20;
+      if (glitchTimer <= 0) {
+        glitchTimer = Math.floor(random(15, glitchFreq + 10)); glitchDuration = Math.floor(random(4, 8));
+        glitchBars = []; const n = Math.floor(random(3, 7)); const ft = faceState.foreheadCenter.y - faceState.faceHeight * 0.1;
+        for (let i = 0; i < n; i++)glitchBars.push({ y: ft + random() * faceState.faceHeight * 1.2, h: random(4, 14), color: ['#ff00aa', '#00f5ff', '#fff', '#ffd700'][Math.floor(random(4))], op: random(0.15, 0.4), jitter: 0 })
+      }
+      glitchTimer--;
+      if (glitchDuration > 0) {
+        glitchDuration--; const fw = faceState.faceWidth * 1.3;
+        glitchBars.forEach(b => {
+          b.jitter = random(-8, 8); ctx.fillStyle = b.color; ctx.globalAlpha = b.op * a;
+          ctx.fillRect(faceState.center.x - fw / 2 + b.jitter, b.y, fw, b.h)
+        }); ctx.globalAlpha = 1
+      }
+      // Biometric text
+      const tCol = 'rgba(0,245,255,' + (0.5 * a) + ')'; ctx.fillStyle = tCol; ctx.font = "8px 'Courier New'";
+      if (state.frameCount % 60 < 3) { glitchPercents = ['' + (95 + Math.random() * 5).toFixed(1), '' + (95 + Math.random() * 5).toFixed(1)] }
+      const flickerHide = Math.floor(random(0, 4)); const flickerOn = (state.frameCount % 10) > 2;
+      const texts = [[faceState.leftEye.x - 50, faceState.leftEye.y - 10, 'EYE-L: ' + glitchPercents[0] + '%'],
+      [faceState.rightEye.x + 10, faceState.rightEye.y - 10, 'EYE-R: ' + glitchPercents[1] + '%'],
+      [faceState.chinCenter.x - 30, faceState.chinCenter.y + 20, 'ID: [REDACTED]'],
+      [faceState.foreheadCenter.x - 20, faceState.foreheadCenter.y - 15, 'SCAN: ACTIVE']];
+      if (faceState.isMouthOpen) { texts.forEach(t => { t[2] = t[2].split('').map(c => random() < 0.4 ? String.fromCharCode(33 + Math.floor(random() * 93)) : c).join('') }) }
+      texts.forEach((t, i) => { if (i === flickerHide && !flickerOn) return; ctx.fillText(t[2], t[0], t[1]) });
+      // Blink flash
+      if ((faceState.blinkLeft && !faceState.prevBlinkLeft) || (faceState.blinkRight && !faceState.prevBlinkRight)) {
+        const fw2 = faceState.faceWidth * 1.2, fh2 = faceState.faceHeight * 1.2;
+        ctx.fillStyle = 'rgba(255,255,255,' + (0.25 * a) + ')';
+        ctx.fillRect(faceState.center.x - fw2 / 2, faceState.foreheadCenter.y - fh2 * 0.1, fw2, fh2)
+      }
+    }
+
+    // ═══════ FACE EFFECT 8: PORTAL FACE ═══════
+    function drawPortal() {
+      if (!faceState.landmarks) return;
+      const a = faceState.fadeAlpha; const ctx = drawingContext;
+      const cx = faceState.center.x, cy = faceState.center.y;
+      const fw = faceState.faceWidth, fh = faceState.faceHeight;
+      if (fw < 1) return;
+      const mouthScale = faceState.isMouthOpen ? 1.2 : 1;
+      const rx = fw * 0.7 * mouthScale, ry = fh * 0.55 * mouthScale;
+      // Portal ring
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(faceState.headTiltAngle);
+      ctx.setLineDash([10, 5]); ctx.lineDashOffset = -state.frameCount;
+      ctx.shadowColor = 'rgba(180,100,255,0.6)'; ctx.shadowBlur = 15;
+      ctx.strokeStyle = `rgba(180,100,255,${0.8 * a})`; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 30; ctx.strokeStyle = `rgba(100,50,200,${0.3 * a})`; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.setLineDash([]);
+      // Brow raise color shift
+      if (faceState.isBrowRaise) { ctx.strokeStyle = `rgba(0,200,255,${0.6 * a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 0, rx + 3, ry + 3, 0, 0, Math.PI * 2); ctx.stroke() }
+      ctx.restore();
+      // Star field clipped to face oval
+      if (!portalInited) {
+        portalStars = []; for (let i = 0; i < 80; i++)portalStars.push({ ax: random(-1, 1), ay: random(-1, 1), size: random(0.5, 2), op: random(0.3, 0.9), drift: random(0.002, 0.005) });
+        portalTendrils = []; for (let i = 0; i < 6; i++)portalTendrils.push({ angle: i * Math.PI / 3, len: 60, speed: 0.01 + random() * 0.01 });
+        portalCosmicParts = []; for (let i = 0; i < 30; i++)portalCosmicParts.push({ angle: random(TWO_PI), dist: random(fw * 0.8, fw * 1.5), speed: random(0.5, 2), size: random(1, 3), hue: random(260, 300) });
+        portalInited = true
+      }
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(faceState.headTiltAngle);
+      ctx.beginPath(); ctx.ellipse(0, 0, rx - 2, ry - 2, 0, 0, Math.PI * 2); ctx.clip();
+      const starBri = faceState.isMouthOpen ? 1.5 : 1; const blinkFlicker = (faceState.blinkLeft || faceState.blinkRight) ? 0.3 : 1;
+      for (const s of portalStars) {
+        s.ay += s.drift; if (s.ay > 1) s.ay = -1;
+        ctx.fillStyle = `rgba(200,220,255,${s.op * a * starBri * blinkFlicker})`;
+        ctx.fillRect(s.ax * rx, s.ay * ry, s.size, s.size)
+      }
+      ctx.restore();
+      // Warp tendrils
+      for (const t of portalTendrils) {
+        t.angle += t.speed;
+        const elen = t.len + faceState.headVelocity * 3; const sx = cx + Math.cos(t.angle) * rx; const sy = cy + Math.sin(t.angle) * ry * 0.8;
+        const ex = cx + Math.cos(t.angle) * (rx + elen); const ey = cy + Math.sin(t.angle) * (ry * 0.8 + elen * 0.6);
+        const cpx = sx + (ex - sx) * 0.5 + Math.sin(t.angle * 3) * 20; const cpy = sy + (ey - sy) * 0.5 + Math.cos(t.angle * 3) * 20;
+        ctx.strokeStyle = `rgba(160,80,255,${0.35 * a})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(cpx, cpy, ex, ey); ctx.stroke()
+      }
+      if (faceState.isMouthOpen) {
+        for (const t of portalTendrils) {
+          const a2 = t.angle + Math.PI / 6; const sx = cx + Math.cos(a2) * rx; const sy = cy + Math.sin(a2) * ry * 0.8;
+          const ex = cx + Math.cos(a2) * (rx + t.len * 0.7); const ey = cy + Math.sin(a2) * (ry * 0.8 + t.len * 0.4);
+          ctx.strokeStyle = `rgba(120,60,200,${0.2 * a})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo((sx + ex) / 2 + random(-10, 10), (sy + ey) / 2 + random(-10, 10), ex, ey); ctx.stroke()
+        }
+      }
+      // Cosmic particles spiraling inward
+      noStroke(); for (const p of portalCosmicParts) {
+        p.angle += 0.03; p.dist -= p.speed; if (p.dist < 10) {
+          p.dist = random(fw * 0.8, fw * 1.5); p.angle = random(TWO_PI);
+          // Flash at center
+          fill(280, 60, 100, 30 * a); ellipse(cx, cy, 8, 8)
+        }
+        const px = cx + Math.cos(p.angle) * p.dist; const py = cy + Math.sin(p.angle) * p.dist * 0.6;
+        fill(p.hue, 60, 90, (p.dist / (fw * 1.5)) * 70 * a); ellipse(px, py, p.size, p.size)
+      }
+    }
+
+    // ═══════ MODE SWITCHING ═══════
+    function setHandMode(m) {
+      activeHandMode = m; particles = []; rings = []; initInkGrid();
+      document.querySelectorAll('[data-hand]').forEach(b => b.classList.toggle('active-hand', parseInt(b.dataset.hand) === m))
+    }
+    function setFaceMode(m) {
+      activeFaceMode = m; auraParticles = []; auraArcs = []; haloInited = false; portalInited = false; glitchTimer = 0;
+      document.querySelectorAll('[data-face]').forEach(b => b.classList.toggle('active-face', parseInt(b.dataset.face) === m))
+    }
+    document.querySelectorAll('[data-hand]').forEach(b => b.addEventListener('click', () => setHandMode(parseInt(b.dataset.hand))));
+    document.querySelectorAll('[data-face]').forEach(b => b.addEventListener('click', () => setFaceMode(parseInt(b.dataset.face))));
+    document.addEventListener('keydown', e => { if (e.key >= '1' && e.key <= '3') setHandMode(parseInt(e.key)); else if (e.key >= '4' && e.key <= '8') setFaceMode(parseInt(e.key)); else if (e.key === '0') { setHandMode(0); setFaceMode(0) } });
+  </script>
+</body>
+
+</html>
