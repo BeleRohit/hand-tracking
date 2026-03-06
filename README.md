@@ -107,8 +107,6 @@ hand-tracking/
 └── .gitignore
 ```
 
-Yes, it's **one file**. HTML + CSS + JS, all inlined. Open and it works.
-
 ---
 
 ## ⚡ Performance
