@@ -92,9 +92,19 @@ xdg-open index.html    # Linux
 
 ```
 hand-tracking/
-├── index.html    ← entire app (single file, ~770 lines)
-├── .gitignore
-└── README.md
+├── index.html              ← lightweight HTML shell
+├── css/
+│   └── styles.css          ← modular styles
+├── js/
+│   ├── main.js             ← entry pt + p5 orchestration
+│   ├── state.js            ← globals & shared tracking state
+│   ├── camera.js           ← webcam initialization
+│   ├── pipeline.js         ← MediaPipe hands & face processing
+│   ├── ui.js               ← mode panel & DOM interactions
+│   ├── hand-effects/       ← particles, waves, ink routines
+│   └── face-effects/       ← mesh, aura, halo, glitch, portal routines
+├── README.md
+└── .gitignore
 ```
 
 Yes, it's **one file**. HTML + CSS + JS, all inlined. Open and it works.
